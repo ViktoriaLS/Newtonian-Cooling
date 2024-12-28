@@ -1,13 +1,25 @@
-% Initialize variables
-x = 65.8;
-y = [53.2, 53.1, 53.1, 52.9, 52.9, 52.9, 52.9, 52.7, 52.7, 52.7, 52.7, 52.5, 52.5, 52.5, 52.5, 52];
-t = [1481, 1492, 1503, 1514, 1526, 1537, 1548, 1559, 1571, 1582, 1593, 1604, 1616, 1627, 1638, 1649];
-te = [1489.27, 1503.73, 1518.25, 1532.75, 1547.23, 1561.73, 1576.20, 1590.70, 1605.20, 1619.67, 1634.15, 1648.65];
-Te = [63.8, 63.8, 63.8, 63.7, 63.7, 63.7, 63.6, 63.5, 63.5, 63.4, 63.4, 63.3];
-t_l = [1481, 1503, 1514, 1526, 1537, 1559, 1571, 1582, 1604, 1616, 1627, 1638];
-t_g = [1492, 1514, 1526, 1537, 1548, 1571, 1582, 1593, 1616, 1927, 1638, 1649];
-y_l = [53.2, 53.1, 52.9, 52.9, 52.9, 52.7, 52.7, 52.7, 52.5, 52.5, 52.5, 52.5];
-y_g = [53.1, 52.9, 52.9, 52.9, 52.9, 52.7, 52.7, 52.7, 52.5, 52.5, 52.5, 52.5];
+%REVISION (12/28/24): LOAD DATA FROM EXCEL
+M = readmatrix("temp_data.xlsx");
+tColumn = M(:,1);
+yColumn = M(:,2);
+xColumn = M(:,3);
+teColumn = M(:,4);
+TColumn = M(:,5);
+
+t = tColumn(52:67);
+y = yColumn(52:67);
+x = xColumn(52:67);
+te = teColumn(41:52);
+Te = TColumn(41:52);
+
+%Initialize variables
+num_elements = numel(Te);
+t_l = create_t_l(t, num_elements);
+t_g = create_t_g(t, num_elements);
+
+y_l = interp1(t, y, t_l, 'linear'); 
+y_g = interp1(t, y, t_g, 'linear');
+
 r = zeros(1, 1000);
 s = zeros(1, 1000);
 resultR = zeros(1, 1000);
@@ -21,14 +33,18 @@ s = ValueTolerance(s, 0.05, 0.0001);
 resultR = relError_StaticS(r, fixedS, resultR, te, Te, t_l, t_g, y_l, y_g, x);
 resultS = relError_StaticR(fixedR, s, resultS, te, Te, t_l, t_g, y_l, y_g, x);
 
+%REVISION (12/28/24): AUTO FIND MIN VALUES
+[minR,minDimR] = min(resultR, [], 'all');
+[minS,minDimS] = min(resultS, [], 'all');
+
 % Display results
 disp('Initial Conditions are:');
-disp('T = 63.8');
+disp(['T = ', num2str(Te(1))]);
 disp(['Fixed r = ', num2str(fixedR)]);
 disp(['Fixed s = ', num2str(fixedS)]);
 disp(' ');
-disp(['Minimum Relative Error (with fixed s): ', num2str(resultR(197)), ' with an r value of: ', num2str(r(197))]);
-disp(['Minimum Relative Error (with fixed r): ', num2str(resultS(46)), ' with an s value of: ', num2str(s(46))]);
+disp(['Minimum Relative Error (with fixed s): ', num2str(resultR(minDimR)), ' with an r value of: ', num2str(r(minDimR))]);
+disp(['Minimum Relative Error (with fixed r): ', num2str(resultS(minDimS)), ' with an s value of: ', num2str(s(minDimS))]);
 
 % Function definitions
 function r = ValueTolerance(r, initial, changeBy)
@@ -42,75 +58,102 @@ function r = ValueTolerance(r, initial, changeBy)
         r(i) = r(i+1) - changeBy;
     end
 end
-
+%REVISION (12/28/24): MULTIPLE X VALUES
 function rExit = relError_StaticS(r, s, rExit, te, Te, t_l, t_g, y_l, y_g, x)
     m = zeros(1, numel(Te));
     y1 = zeros(1, numel(Te));
-    T = zeros(1, 12);
-    error_array = zeros(1, numel(Te));
+    error_array = zeros(numel(x), numel(Te)); % Adjust for multiple x values
     
     for i = 1:numel(Te)
         m(i) = (y_g(i) - y_l(i)) / (t_g(i) - t_l(i));
         y1(i) = y_l(i) + m(i) * (te(i) - t_l(i));
     end
     
-    T(1) = 63.8;
-    loop = 1;
-    
-    while loop <= numel(r)
-        for i = 1:11
-            T(i + 1) = T(i) + r(loop) * (te(i + 1) - te(i)) * (x - T(i)) - s * (te(i + 1) - te(i)) * (T(i) - y1(i));
+    for j = 1:numel(x) % Loop through each x value
+        T = zeros(1, numel(Te)); % Reset T for each x value
+        T(1) = Te(1);
+        for loop = 1:numel(r)
+            for i = 1:numel(Te)-1
+                T(i + 1) = T(i) + r(loop) * (te(i + 1) - te(i)) * (x(j) - T(i)) - s * (te(i + 1) - te(i)) * (T(i) - y1(i));
+            end
+            
+            for k = 1:numel(T)
+                error_array(j, k) = abs(T(k) - Te(k));
+            end
+            
+            error_sum = sum(error_array(j, :) .^ 2);
+            error_nrm = sqrt(error_sum);
+            
+            Te_sum = sum(Te .^ 2);
+            Te_nrm = sqrt(Te_sum);
+            
+            rExit(loop) = error_nrm / Te_nrm;
         end
-        
-        for k = 1:numel(T)
-            error_array(k) = abs(T(k) - Te(k));
-        end
-        
-        error_array = error_array .^ 2;
-        error_sum = sum(error_array);
-        error_nrm = sqrt(error_sum);
-        
-        Te_squared = Te .^ 2;
-        Te_sum = sum(Te_squared);
-        Te_nrm = sqrt(Te_sum);
-        
-        rExit(loop) = error_nrm / Te_nrm;
-        loop = loop + 1;
     end
 end
 
+%REVISION (12/28/24): MULTIPLE X VALUES
 function rExit = relError_StaticR(r, s, rExit, te, Te, t_l, t_g, y_l, y_g, x)
     m = zeros(1, numel(Te));
     y1 = zeros(1, numel(Te));
-    T = zeros(1, 12);
-    error_array = zeros(1, numel(Te));
+    error_array = zeros(numel(x), numel(Te)); % Adjust for multiple x values
     
     for i = 1:numel(Te)
         m(i) = (y_g(i) - y_l(i)) / (t_g(i) - t_l(i));
         y1(i) = y_l(i) + m(i) * (te(i) - t_l(i));
     end
     
-    T(1) = 63.8;
-    loop = 1;
+    for j = 1:numel(x) % Loop through each x value
+        T = zeros(1, numel(Te)); % Reset T for each x value
+        T(1) = Te(1);
+        for loop = 1:numel(s)
+            for i = 1:numel(Te)-1
+                T(i + 1) = T(i) + r * (te(i + 1) - te(i)) * (x(j) - T(i)) - s(loop) * (te(i + 1) - te(i)) * (T(i) - y1(i));
+            end
+            
+            for k = 1:numel(T)
+                error_array(j, k) = abs(T(k) - Te(k));
+            end
+            
+            error_sum = sum(error_array(j, :) .^ 2);
+            error_nrm = sqrt(error_sum);
+            
+            Te_sum = sum(Te .^ 2);
+            Te_nrm = sqrt(Te_sum);
+            
+            rExit(loop) = error_nrm / Te_nrm;
+        end
+    end
+end
+
+function t_l = create_t_l(t, num_elements)
+    % Calculate the step size based on desired number of elements
+    step = floor(length(t) / num_elements);
     
-    while loop <= numel(s)
-        for i = 1:11
-            T(i + 1) = T(i) + r * (te(i + 1) - te(i)) * (x - T(i)) - s(loop) * (te(i + 1) - te(i)) * (T(i) - y1(i));
-        end
-        
-        for k = 1:numel(T)
-            error_array(k) = abs(T(k) - Te(k));
-        end
-        
-        error_array = error_array .^ 2;
-        error_sum = sum(error_array);
-        error_nrm = sqrt(error_sum);
-        
-        Te_squared = Te .^ 2;
-        Te_sum = sum(Te_squared);
-        Te_nrm = sqrt(Te_sum);
-        
-        rExit(loop) = error_nrm / Te_nrm;
-        loop = loop + 1;
+    % Generate indices based on the step size
+    indices_to_keep = 1:step:length(t);
+    
+    % Ensure the exact number of elements required
+    t_l = t(indices_to_keep);
+    
+    % If t_l has more elements than needed, trim it
+    if length(t_l) > num_elements
+        t_l = t_l(1:num_elements);
+    end
+end
+
+function t_g = create_t_g(t, num_elements)
+    % Calculate the step size based on desired number of elements
+    step = floor(length(t) / num_elements);
+    
+    % Generate indices by starting from the second element
+    indices_to_keep = 2:step:length(t);
+    
+    % Ensure the exact number of elements required
+    t_g = t(indices_to_keep);
+    
+    % If t_g has more elements than needed, trim it
+    if length(t_g) > num_elements
+        t_g = t_g(1:num_elements);
     end
 end
